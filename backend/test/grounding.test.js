@@ -108,6 +108,17 @@ describe('buildOutreachEmail (Appendix A)', () => {
     );
   });
 
+  it('infers the pitched capability from the signal kind and labels it as inferred', () => {
+    const email = buildOutreachEmail({
+      ...base,
+      signals: [signal({ kind: 'leadership', pain_point: null, sentence: 'I noticed that Northwind named a new CMO' })],
+    });
+    expect(email.blocked).toBe(false);
+    expect(email.paragraphs[1]).toBe('I noticed that Northwind named a new CMO.');
+    expect(email.paragraphs[2]).toContain('forecast demand');
+    expect(email.tokens.find((t) => t.token === 'value_prop_for_pain_point').source).toContain('inferred from "leadership"');
+  });
+
   it('drops the value-prop sentence when the company segment is unknown', () => {
     const email = buildOutreachEmail({ ...base, company: { ...base.company, segment: null }, signals: [signal()] });
     expect(email.paragraphs.some((p) => p.startsWith('At StyleSense AI'))).toBe(false);

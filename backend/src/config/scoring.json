@@ -7,7 +7,7 @@
     },
     "region": {
       "points": 15,
-      "targets": ["united states", "usa", "us", "united kingdom", "uk", "europe", "india", "canada", "australia"]
+      "targets": ["united states", "usa", "us", "north america", "united kingdom", "uk", "europe", "india", "canada", "australia"]
     },
     "sizeBand": { "1-50": 5, "51-200": 15, "201-1000": 25, "1001-5000": 25, "5000+": 15 },
     "title": {
