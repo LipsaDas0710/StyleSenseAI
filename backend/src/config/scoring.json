@@ -1,0 +1,36 @@
+{
+  "weights": { "fit": 0.6, "engagement": 0.4 },
+  "fit": {
+    "industry": {
+      "points": 30,
+      "keywords": ["apparel", "fashion", "clothing", "footwear", "garment", "luxury", "streetwear", "activewear"]
+    },
+    "region": {
+      "points": 15,
+      "targets": ["united states", "usa", "us", "united kingdom", "uk", "europe", "india", "canada", "australia"]
+    },
+    "sizeBand": { "1-50": 5, "51-200": 15, "201-1000": 25, "1001-5000": 25, "5000+": 15 },
+    "title": {
+      "functionKeywords": ["merchandis", "demand planning", "planning", "supply chain", "inventory", "allocation", "buying", "e-commerce", "ecommerce"],
+      "seniorityKeywords": ["head", "director", "vp", "vice president", "chief", "svp", "lead"],
+      "seniorAndRelevant": 30,
+      "relevant": 18,
+      "seniorOnly": 10,
+      "other": 0
+    }
+  },
+  "engagement": {
+    "delivered": 5,
+    "firstOpen": 30,
+    "repeatOpen": 5,
+    "maxRepeatOpens": 2,
+    "replied": 40,
+    "replyIntent": {
+      "interested": 25,
+      "needs_info": 15,
+      "not_now": 0,
+      "wrong_person": -40,
+      "unsubscribe": 0
+    }
+  }
+}

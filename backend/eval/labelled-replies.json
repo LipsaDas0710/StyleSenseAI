@@ -1,0 +1,10 @@
+[
+  { "id": 1, "label": "interested", "text": "Hi Priya, thanks for reaching out - this is timely, we've been struggling with allocation across our new stores. Happy to take a call next week. Thursday afternoon works for me." },
+  { "id": 2, "label": "needs_info", "text": "Could you send over a short overview first? I'd like to understand how the forecasting works with our existing Shopify and NetSuite setup before we schedule anything." },
+  { "id": 3, "label": "not_now", "text": "Appreciate the note. We're mid-way through our ERP migration so this isn't a priority until next year. Feel free to circle back in Q1." },
+  { "id": 4, "label": "wrong_person", "text": "I'm on the brand marketing side, so this isn't really my area. You'd be better off speaking with Marcus Lee, who runs planning and inventory." },
+  { "id": 5, "label": "unsubscribe", "text": "Please remove me from your mailing list. I don't want to receive these emails." },
+  { "id": 6, "label": "interested", "text": "Sounds interesting. Markdowns were brutal for us last season. Let's set up some time - send me a calendar invite." },
+  { "id": 7, "label": "needs_info", "text": "What does pricing look like for a brand of our size, and do you have any case studies from footwear companies?" },
+  { "id": 8, "label": "unsubscribe", "text": "Not interested. Stop emailing me." }
+]
