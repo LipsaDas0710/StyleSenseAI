@@ -2,14 +2,17 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "migrate": "node src/db/migrate.js",
+    "eval": "node eval/evaluate-replies.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
@@ -18,14 +21,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/node": "^26.6.5",
-    "@types/pg": "^8.23.1",
-    "@types/supertest": "^7.2.1",
     "supertest": "^7.3.1",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   }
 }
