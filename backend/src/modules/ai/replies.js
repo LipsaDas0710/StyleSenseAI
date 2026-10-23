@@ -4,7 +4,7 @@ import { pool, withTransaction } from '../../db/pool.js';
 import { AppError, notFound } from '../../http/errors.js';
 import { idParams } from '../../http/validate.js';
 import { newTrackingToken, unsubscribeUrl } from '../email/email.service.js';
-import { PAIN_POINT_MAP } from '../email/painPoints.js';
+import { PAIN_POINT_MAP, painPointFor } from '../email/painPoints.js';
 import { getEmailProvider, resolveRecipient } from '../email/providers.js';
 import { renderHtml, renderText } from '../email/template.js';
 import { isSuppressed, recordEvent } from '../events/events.service.js';
@@ -27,17 +27,17 @@ async function loadReplyContext(leadId) {
   if (!lead) throw notFound('Lead', leadId);
   const signals = (
     await pool.query(
-      'SELECT pain_point, sentence FROM company_signals WHERE company_id = $1 ORDER BY pain_point NULLS LAST, id',
+      'SELECT kind, pain_point, sentence FROM company_signals WHERE company_id = $1 ORDER BY pain_point NULLS LAST, id',
       [lead.company_id],
     )
   ).rows;
-  const pain = signals.find((s) => s.pain_point)?.pain_point;
+  const pain = signals.map(painPointFor).find((p) => p.key)?.key;
   return {
     firstName: lead.first_name,
     companyName: lead.company_name,
     senderName: lead.last_outreach?.sender_name ?? 'The StyleSense AI team',
     capability: pain ? PAIN_POINT_MAP[pain].capability : null,
-    facts: signals.map((s) => s.sentence),
+    facts: signals.map((s) => s.sentence.replace(/^\s*i noticed\s+/i, '')),
     email: lead.email,
     lastSubject: lead.last_outreach?.subject ?? null,
     lastMessageId: lead.last_outreach?.id ?? null,

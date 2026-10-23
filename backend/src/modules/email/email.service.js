@@ -24,7 +24,7 @@ async function loadContext(db, campaignId, leadId) {
   if (!lead) throw new AppError(404, 'NOT_IN_CAMPAIGN', `Lead ${leadId} is not part of campaign ${campaignId}`);
   const signals = (
     await db.query(
-      `SELECT id, pain_point, summary_short, sentence, source_url, source_excerpt
+      `SELECT id, kind, pain_point, summary_short, sentence, source_url, source_excerpt
          FROM company_signals WHERE company_id = $1 ORDER BY observed_at DESC NULLS LAST, id`,
       [lead.company_id],
     )

@@ -57,7 +57,8 @@ export async function insertSignals(db, companyId, signals) {
   for (const s of signals) {
     await db.query(
       `INSERT INTO company_signals (company_id, kind, pain_point, summary_short, sentence, source_url, source_excerpt, observed_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (company_id, source_url, lower(summary_short)) DO NOTHING`,
       [
         companyId,
         s.kind,

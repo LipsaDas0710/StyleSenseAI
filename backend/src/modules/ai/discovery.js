@@ -7,7 +7,7 @@ import { idParams, offsetOf, optionalText, paginationSchema, toPage } from '../.
 import { PAIN_POINTS, SIGNAL_KINDS, SIZE_BANDS, upsertCompany } from '../companies/companies.js';
 import { createLead } from '../leads/leads.js';
 import { getLlm, parseJsonObject } from './llm.js';
-import { fetchPage, TOOL_DEFINITIONS, webSearch } from './tools.js';
+import { fetchPage, relevantExcerpt, TOOL_DEFINITIONS, webSearch } from './tools.js';
 
 export const icpSchema = z.object({
   industry: z.string().trim().min(2).max(100),
@@ -17,7 +17,26 @@ export const icpSchema = z.object({
   max_leads: z.number().int().min(1).max(10).default(8),
 });
 
-const MAX_TOOL_ROUNDS = 12;
+// Budgets keep a run inside free-tier limits (Groq: ~8k tokens/minute) and bound its duration.
+const MAX_TOOL_ROUNDS = 10;
+const MAX_SEARCHES = 5;
+const MAX_FETCHES = 6;
+const TOOL_EXCERPT_CHARS = 1500;
+const EXTRACT_EXCERPT_CHARS = 3500;
+
+const ROLE_KEYWORDS = ['merchandis', 'planning', 'planner', 'supply chain', 'inventory', 'allocation', 'buying',
+  'chief', 'head of', 'director', 'vice president', 'vp', 'appoint', 'named', 'joins', 'hired'];
+const SIGNAL_KEYWORDS = ['launch', 'open', 'store', 'expan', 'markdown', 'discount', 'stockout', 'out of stock',
+  'return', 'funding', 'raise', 'collection', 'dtc', 'direct-to-consumer', 'wholesale', 'sustainab', 'overproduction'];
+
+const signalSchema = z.object({
+  company_name: z.string().trim().min(1).max(200),
+  kind: z.enum(SIGNAL_KINDS).catch('other'),
+  pain_point: z.enum(PAIN_POINTS).nullish().catch(null),
+  summary_short: z.string().trim().min(3).max(60),
+  sentence: z.string().trim().min(10).max(300),
+  source_excerpt: z.string().trim().min(5).max(600),
+});
 
 // What the extraction step must return. Everything is re-verified against fetched pages afterwards.
 const extractedLead = z.object({
@@ -29,25 +48,13 @@ const extractedLead = z.object({
   linkedin_url: z.string().url().nullish(),
   company: z.object({
     name: z.string().trim().min(1).max(200),
-    website: z.string().url().nullish(),
+    website: z.string().url().nullish().catch(null),
     industry: z.string().trim().max(100).nullish(),
     region: z.string().trim().max(100).nullish(),
     size_band: z.enum(SIZE_BANDS).nullish().catch(null),
     segment: z.string().trim().max(100).nullish(),
   }),
-  signals: z
-    .array(
-      z.object({
-        kind: z.enum(SIGNAL_KINDS).catch('other'),
-        pain_point: z.enum(PAIN_POINTS).nullish().catch(null),
-        summary_short: z.string().trim().min(3).max(60),
-        sentence: z.string().trim().min(10).max(300),
-        source_url: z.string().url(),
-        source_excerpt: z.string().trim().min(5).max(600),
-      }),
-    )
-    .max(3)
-    .default([]),
+  signals: z.array(signalSchema.extend({ source_url: z.string().url() })).max(3).default([]),
 });
 
 const SEARCH_PROMPT = (icp) => `You are a B2B sales researcher for StyleSense AI, which sells demand forecasting,
@@ -63,81 +70,143 @@ Goal: find up to ${icp.max_leads} REAL, currently-employed people at different c
 recent public signal per company (collection/store launch, DTC or marketplace expansion, new region, hiring for planning or
 merchandising, markdowns, stockouts, high returns, funding, new leadership, sustainability/overproduction initiative).
 
-Method: use web_search to find candidate pages (company leadership/team pages, press releases announcing appointments,
-trade press such as Business of Fashion, Retail Dive, Drapers, WWD). Then call fetch_page on every page you intend to cite -
-a person or signal that does not appear in a fetched page will be discarded. Never guess names or emails.
-When you have fetched enough pages, reply with the single word DONE.`;
+Method: use web_search to find candidate pages (press releases or trade press announcing appointments - Business of
+Fashion, Retail Dive, Drapers, WWD, Modern Retail - and company leadership pages). Then call fetch_page on the most
+promising pages - a person or signal that does not appear in a fetched page will be discarded. Never guess names or emails.
+Each page you fetch should be about a DIFFERENT company; you may call several tools in one turn.
+Budget: at most ${MAX_SEARCHES} searches and ${MAX_FETCHES} page fetches. Fetched pages are shown as relevant excerpts
+only. When you have fetched enough pages, reply with the single word DONE.`;
 
-const EXTRACT_PROMPT = `Extract leads from the fetched pages below. Use ONLY information stated in those pages.
-For each lead, source_excerpt must be copied verbatim from the page at source_url and must contain the person's name.
-For each signal, source_excerpt must be copied verbatim from its source_url page and support the sentence.
-signal.sentence must read naturally after "I noticed " (e.g. "that Acme opened its first London store in May").
-signal.summary_short is 2-6 words (e.g. "first London store"). company.segment is a short noun like "DTC brand" or
-"department store". size_band is one of ${SIZE_BANDS.join(', ')} or null if unknown. pain_point is one of
-${PAIN_POINTS.join(', ')} or null. kind is one of ${SIGNAL_KINDS.join(', ')}.
-Respond with JSON: {"leads": [{"first_name", "last_name", "title", "source_url", "source_excerpt", "linkedin_url",
-"company": {"name", "website", "industry", "region", "size_band", "segment"},
-"signals": [{"kind", "pain_point", "summary_short", "sentence", "source_url", "source_excerpt"}]}]}`;
+const EXTRACT_PROMPT = `Extract sales leads and company signals from ONE web page excerpt. Use ONLY what the text states.
+- people: individuals the text names with a current job title at an apparel/fashion company. Skip journalists and people
+  who have left. source_excerpt must be copied verbatim from the text and contain the person's full name.
+- signals: recent facts about a company (launch, expansion, hiring, markdowns, stockouts, returns, funding, leadership,
+  sustainability). source_excerpt must be verbatim from the text. sentence must read naturally after "I noticed "
+  (e.g. "that Acme opened its first London store in May"). summary_short is 2-6 words (e.g. "first London store").
+- company.segment is a short noun like "DTC brand" or "department store". size_band is one of ${SIZE_BANDS.join(', ')}
+  or null. pain_point is one of ${PAIN_POINTS.join(', ')} or null. kind is one of ${SIGNAL_KINDS.join(', ')}.
+Respond with JSON only: {"people": [{"first_name", "last_name", "title", "source_excerpt", "linkedin_url",
+"company": {"name", "website", "industry", "region", "size_band", "segment"}}],
+"signals": [{"company_name", "kind", "pain_point", "summary_short", "sentence", "source_excerpt"}]}
+Return empty arrays if the text names nobody relevant.`;
 
 const norm = (s) => s.toLowerCase().replace(/[’‘]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ').trim();
 const domainOf = (url) => new URL(url).hostname.toLowerCase().replace(/^www\./, '');
 
-/** Step 1: tool-calling loop where the model searches and fetches pages. Returns the fetched pages. */
+/**
+ * Step 1: tool-calling loop where the model searches and fetches pages. Full page text is kept here for
+ * extraction and verification; the model only ever sees short excerpts, and older tool outputs are
+ * compacted to one-line notes so each request stays small.
+ */
 async function searchPhase(llm, icp, log) {
   const pages = new Map();
+  const keywords = [...new Set([...icp.titles.map((t) => t.toLowerCase()), ...ROLE_KEYWORDS])];
+  // Companies we already have leads for are excluded so each run finds new ones.
+  const known = (await pool.query('SELECT name, domain FROM companies ORDER BY id')).rows;
+  const excludeDomains = new Set(known.map((c) => c.domain).filter(Boolean));
+  const knownNote = known.length ? `\nAlready in our CRM - skip these companies: ${known.map((c) => c.name).join(', ')}.` : '';
   const messages = [
-    { role: 'system', content: SEARCH_PROMPT(icp) },
+    { role: 'system', content: SEARCH_PROMPT(icp) + knownNote },
     { role: 'user', content: 'Start researching.' },
   ];
+  const compactable = []; // [message, shortSummary] from earlier rounds
+  let searches = 0;
+
+  const runTool = async (call) => {
+    const args = JSON.parse(call.function.arguments || '{}');
+    if (call.function.name === 'web_search' && args.query) {
+      if (++searches > MAX_SEARCHES) return { output: 'Search budget used up. Fetch pages or reply DONE.' };
+      const results = await webSearch(args.query, { excludeDomains: [...excludeDomains] });
+      log({ step: 'tool', tool: 'web_search', query: args.query, results: results.map((r) => r.url) });
+      const lines = results.map((r) => `- ${r.title} | ${r.url}`);
+      return {
+        output: results.map((r, i) => `${lines[i]}\n  ${r.snippet}`).join('\n') || 'No results.',
+        summary: `Results for "${args.query}":\n${lines.join('\n')}`,
+      };
+    }
+    if (call.function.name === 'fetch_page' && args.url) {
+      if (pages.size >= MAX_FETCHES) return { output: 'Fetch budget used up. Reply DONE.' };
+      const text = await fetchPage(args.url);
+      pages.set(args.url, text);
+      excludeDomains.add(domainOf(args.url));
+      log({ step: 'tool', tool: 'fetch_page', url: args.url, chars: text.length });
+      return {
+        output: relevantExcerpt(text, keywords, TOOL_EXCERPT_CHARS),
+        summary: `Fetched ${args.url} (stored for extraction).`,
+      };
+    }
+    return { output: `Unknown tool or missing arguments: ${call.function.name}` };
+  };
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const reply = await llm.chat({ messages, tools: TOOL_DEFINITIONS, maxTokens: 800 });
+    const reply = await llm.chat({ messages, tools: TOOL_DEFINITIONS, maxTokens: 1000 });
     messages.push(reply);
     if (!reply.tool_calls?.length) {
+      // Models tend to stop after the first good page; push for more companies while budget remains.
+      if (pages.size < Math.min(MAX_FETCHES, 4) && round < MAX_TOOL_ROUNDS - 1) {
+        log({ step: 'nudge', round, pagesFetched: pages.size });
+        messages.push({
+          role: 'user',
+          content: `You have fetched only ${pages.size} page(s). Fetch pages about people at other companies ` +
+            `(different from those already fetched) before replying DONE.`,
+        });
+        continue;
+      }
       log({ step: 'search_done', round, message: reply.content?.slice(0, 200) ?? null });
       break;
     }
+    for (const [message, summary] of compactable.splice(0)) message.content = summary;
     for (const call of reply.tool_calls) {
-      let output;
+      let result;
       try {
-        const args = JSON.parse(call.function.arguments || '{}');
-        if (call.function.name === 'web_search' && args.query) {
-          const results = await webSearch(args.query);
-          output = JSON.stringify(results);
-          log({ step: 'tool', tool: 'web_search', query: args.query, results: results.map((r) => r.url) });
-        } else if (call.function.name === 'fetch_page' && args.url) {
-          const text = await fetchPage(args.url);
-          pages.set(args.url, text);
-          output = text;
-          log({ step: 'tool', tool: 'fetch_page', url: args.url, chars: text.length });
-        } else {
-          output = `Unknown tool or missing arguments: ${call.function.name}`;
-        }
+        result = await runTool(call);
       } catch (error) {
-        output = `Error: ${error.message}`;
+        result = { output: `Error: ${error.message}` };
         log({ step: 'tool_error', tool: call.function.name, args: call.function.arguments, error: error.message });
       }
-      messages.push({ role: 'tool', tool_call_id: call.id, content: output.slice(0, 8000) });
+      const message = { role: 'tool', tool_call_id: call.id, content: result.output };
+      messages.push(message);
+      compactable.push([message, result.summary ?? result.output.slice(0, 200)]);
     }
   }
   return pages;
 }
 
-/** Step 2: structured extraction over the fetched pages only. */
-async function extractPhase(llm, pages) {
-  const corpus = [...pages]
-    .map(([url, text]) => `=== PAGE ${url} ===\n${text.slice(0, 5000)}`)
-    .join('\n\n')
-    .slice(0, 45_000);
-  const reply = await llm.chat({
-    json: true,
-    maxTokens: 3000,
-    messages: [
-      { role: 'system', content: EXTRACT_PROMPT },
-      { role: 'user', content: corpus },
-    ],
-  });
-  const parsed = parseJsonObject(reply.content);
-  return Array.isArray(parsed.leads) ? parsed.leads : [];
+/** Step 2: structured extraction, one page at a time; signals are then attached to leads by company name. */
+async function extractPhase(llm, pages, log) {
+  const people = [];
+  const signals = [];
+  for (const [url, text] of pages) {
+    const excerpt = relevantExcerpt(text, [...ROLE_KEYWORDS, ...SIGNAL_KEYWORDS], EXTRACT_EXCERPT_CHARS);
+    try {
+      const reply = await llm.chat({
+        json: true,
+        maxTokens: 1500,
+        messages: [
+          { role: 'system', content: EXTRACT_PROMPT },
+          { role: 'user', content: `PAGE ${url}\n"""\n${excerpt}\n"""` },
+        ],
+      });
+      const parsed = parseJsonObject(reply.content);
+      const found = Array.isArray(parsed.people) ? parsed.people : [];
+      people.push(...found.map((p) => ({ ...p, source_url: url })));
+      for (const s of Array.isArray(parsed.signals) ? parsed.signals : []) {
+        const ok = signalSchema.safeParse(s);
+        if (ok.success) {
+          const sentence = ok.data.sentence.replace(/^\s*i noticed\s+/i, '').replace(/[.!?]+$/, '');
+          signals.push({ ...ok.data, sentence, source_url: url });
+        }
+      }
+      log({ step: 'extracted', url, people: found.length, signals: parsed.signals?.length ?? 0 });
+    } catch (error) {
+      log({ step: 'extract_error', url, error: error.message });
+    }
+  }
+  const sameCompany = (a, b) => norm(a).includes(norm(b)) || norm(b).includes(norm(a));
+  return people.map((p) => ({
+    ...p,
+    signals: signals.filter((s) => p.company?.name && sameCompany(s.company_name, p.company.name)).slice(0, 3),
+  }));
 }
 
 /** Programmatic verification: every lead and signal must be backed by text we actually fetched. */
@@ -178,8 +247,8 @@ export async function runDiscovery(icpInput) {
     const pages = await searchPhase(llm, icp, log);
     if (!pages.size)
       throw new AppError(502, 'DISCOVERY_NO_PAGES', 'The agent did not fetch any pages; try a broader ICP');
-    const raw = await extractPhase(llm, pages);
-    log({ step: 'extracted', candidates: raw.length });
+    const raw = await extractPhase(llm, pages, log);
+    log({ step: 'candidates', count: raw.length });
 
     const savedLeadIds = [];
     for (const candidate of raw.slice(0, icp.max_leads * 2)) {

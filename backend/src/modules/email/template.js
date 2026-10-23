@@ -1,5 +1,5 @@
 import { checkToken } from './grounding.js';
-import { PAIN_POINT_MAP } from './painPoints.js';
+import { PAIN_POINT_MAP, painPointFor } from './painPoints.js';
 
 /** Appendix A. Locked copy lives here and only here; tokens are filled from stored data. */
 
@@ -46,14 +46,20 @@ export function buildOutreachEmail(input) {
     return values;
   };
 
-  // Pick the first signal whose own text passes grounding; prefer ones mapped to a pain point.
-  const ordered = [...signals].sort((a, b) => Number(b.pain_point !== null) - Number(a.pain_point !== null));
+  // Pick the first signal whose own text passes grounding; prefer researched pain points, then inferable ones.
+  const rank = (s) => (s.pain_point ? 2 : painPointFor(s).key ? 1 : 0);
+  const ordered = [...signals].sort((a, b) => rank(b) - rank(a));
   let signal = null;
   let noticed = null;
   for (const s of ordered) {
     noticed = resolve(
       [
-        { token: 'observed_signal_sentence', value: s.sentence, provenance: signalProv(s, 'sentence') },
+        {
+          token: 'observed_signal_sentence',
+          // Stored sentences should follow "I noticed"; tolerate ones that repeat it.
+          value: s.sentence.replace(/^\s*i noticed\s+/i, ''),
+          provenance: signalProv(s, 'sentence'),
+        },
         { token: 'observed_signal_short', value: s.summary_short, provenance: signalProv(s, 'summary_short') },
       ],
       'dropped_sentence',
@@ -73,8 +79,10 @@ export function buildOutreachEmail(input) {
     });
   }
 
-  const pain = signal?.pain_point ? PAIN_POINT_MAP[signal.pain_point] : null;
-  const painRef = signal?.pain_point ?? 'none';
+  const painPoint = painPointFor(signal);
+  const pain = painPoint.key ? PAIN_POINT_MAP[painPoint.key] : null;
+  const painRef = painPoint.key ?? 'none';
+  const painNote = painPoint.inferred ? ` (inferred from "${signal.kind}" signal)` : '';
   const base = resolve(
     [
       { token: 'first_name', value: lead.first_name, provenance: field('lead_field', 'leads.first_name') },
@@ -100,7 +108,7 @@ export function buildOutreachEmail(input) {
         {
           token: 'value_prop_for_pain_point',
           value: pain?.valueProp,
-          provenance: productCopy(`pain_point_map.${painRef}.valueProp`),
+          provenance: productCopy(`pain_point_map.${painRef}.valueProp${painNote}`),
         },
       ],
       'dropped_sentence',
@@ -121,7 +129,7 @@ export function buildOutreachEmail(input) {
         {
           token: 'one_line_relevance_hypothesis',
           value: pain?.hypothesis,
-          provenance: productCopy(`pain_point_map.${painRef}.hypothesis`),
+          provenance: productCopy(`pain_point_map.${painRef}.hypothesis${painNote}`),
         },
       ],
       'dropped_sentence',
@@ -167,7 +175,7 @@ export function buildOutreachEmail(input) {
     tokens.set('pain_point_category', {
       token: 'pain_point_category',
       value: pain.category,
-      source: `product copy pain_point_map.${painRef}.category`,
+      source: `product copy pain_point_map.${painRef}.category${painNote}`,
     });
   }
 

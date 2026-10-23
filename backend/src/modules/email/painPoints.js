@@ -26,3 +26,24 @@ export const PAIN_POINT_MAP = {
     hypothesis: 'smarter allocation could keep fast-moving styles in stock where customers are looking for them',
   },
 };
+
+// Used only when research found a signal but no explicit pain point. It selects which of our capabilities
+// to pitch, and the email phrases it as a hypothesis ("could ..."), never as a fact about the company.
+export const SIGNAL_KIND_PAIN_POINT = {
+  markdowns: 'overstock',
+  sustainability: 'overstock', // overproduction initiatives
+  hiring: 'overstock', // planning/merchandising hires -> demand forecasting
+  leadership: 'overstock', // new merchandising leadership typically revisits buy plans
+  stockouts: 'stockouts',
+  expansion: 'stockouts', // more stores/channels -> allocation
+  returns: 'returns',
+  launch: 'slow_trends', // new collections -> trend intelligence
+};
+
+/** The pain point for a signal: the researched one, else the documented inference from its kind (or null). */
+export function painPointFor(signal) {
+  if (!signal) return { key: null, inferred: false };
+  if (signal.pain_point) return { key: signal.pain_point, inferred: false };
+  const key = SIGNAL_KIND_PAIN_POINT[signal.kind] ?? null;
+  return { key, inferred: key !== null };
+}

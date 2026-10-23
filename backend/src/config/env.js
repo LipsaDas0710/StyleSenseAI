@@ -21,7 +21,9 @@ const schema = z.object({
 
   LLM_BASE_URL: z.string().url().default('https://api.groq.com/openai/v1'),
   LLM_API_KEY: optional,
-  LLM_MODEL: z.string().default('llama-3.3-70b-versatile'),
+  LLM_MODEL: z.string().default('openai/gpt-oss-120b'),
+  // Only for reasoning models that accept it (e.g. gpt-oss on Groq); lower = fewer tokens.
+  LLM_REASONING_EFFORT: optional.pipe(z.enum(['low', 'medium', 'high']).optional()),
   SEARCH_API_KEY: optional,
 });
 
