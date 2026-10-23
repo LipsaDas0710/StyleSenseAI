@@ -7,7 +7,8 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "migrate": "node src/db/migrate.js",
-    "eval": "node eval/evaluate-replies.js"
+    "eval": "node eval/evaluate-replies.js",
+    "samples": "node scripts/export-sample-emails.js"
   },
   "keywords": [],
   "author": "",
