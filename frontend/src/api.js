@@ -7,17 +7,21 @@ export class ApiError extends Error {
   }
 }
 
+// Backend origin in production (e.g. https://stylesense-api.onrender.com). Empty in development, where the
+// Vite dev server proxies /api, /t and /u to localhost:5000.
+export const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+
 /** fetch wrapper that turns the backend's { error: { code, message, details } } shape into an ApiError. */
 async function request(method, path, body) {
   let response;
   try {
-    response = await fetch(path, {
+    response = await fetch(API_URL + path, {
       method,
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, 'NETWORK_ERROR', 'Cannot reach the API - is the backend running on port 5000?');
+    throw new ApiError(0, 'NETWORK_ERROR', `Cannot reach the API at ${API_URL || 'localhost:5000'} - is the backend running?`);
   }
   if (response.status === 204) return null;
   const data = await response.json().catch(() => null);

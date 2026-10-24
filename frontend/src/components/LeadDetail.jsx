@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../api.js';
+import { api, API_URL } from '../api.js';
 import { formatDate, fullName, INTENT_LABELS } from '../format.js';
 import { useAction, useApi } from '../hooks.js';
 import { Empty, ErrorBox, Loading, Notice, ScoreBar, StatusBadge } from './ui.jsx';
@@ -272,7 +272,7 @@ function MessagesSection({ lead, onChanged }) {
   const [opened, setOpened] = useState(null);
   const simulateOpen = useAction(async (token) => {
     // Loads the same tracking pixel a mail client would.
-    const res = await fetch(`/t/o/${token}.gif`, { cache: 'no-store' });
+    const res = await fetch(`${API_URL}/t/o/${token}.gif`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`Pixel request failed (${res.status})`);
     setOpened(token);
     onChanged();
@@ -296,7 +296,7 @@ function MessagesSection({ lead, onChanged }) {
               <button type="button" onClick={() => simulateOpen.run(m.tracking_token)} disabled={simulateOpen.pending}>
                 Simulate open (load pixel)
               </button>
-              <a href={`/u/${m.tracking_token}`} target="_blank" rel="noreferrer">
+              <a href={`${API_URL}/u/${m.tracking_token}`} target="_blank" rel="noreferrer">
                 Unsubscribe link
               </a>
               {opened === m.tracking_token && <span className="muted small">open recorded</span>}
